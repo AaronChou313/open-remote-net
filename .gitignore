@@ -8,3 +8,5 @@
 *.log
 
 /android/app/libs/
+
+/android/app/src/main/assets/THIRD_PARTY_NOTICES.txt

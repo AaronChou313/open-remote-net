@@ -41,7 +41,6 @@ func Start(path, version, auth, controlURL string, debug bool) (*App, error) {
 	node := mesh.New(mesh.Config{Hostname: cfg.Hostname, ControlURL: cfg.ControlURL, StateDir: cfg.StateDir, AuthKey: auth, Debug: debug, Logf: log.Printf})
 	if err = node.Start(); err != nil {
 		listener.Close()
-		node.Close()
 		return nil, err
 	}
 	forwards := forward.New(node)

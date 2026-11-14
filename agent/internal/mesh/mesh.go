@@ -277,6 +277,7 @@ func (n *Node) Close() error {
 }
 
 func (n *Node) Rebind(ctx context.Context) error {
+	n.server.Sys().NetMon.Get().InjectEvent()
 	lc, err := n.server.LocalClient()
 	if err != nil {
 		return err

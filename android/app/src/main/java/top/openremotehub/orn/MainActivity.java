@@ -18,12 +18,12 @@ import top.openremotehub.orn.core.mobile.Mobile;
 
 /** Native phone/tablet management UI, backed by the desktop's identical LocalAPI. */
 public final class MainActivity extends Activity {
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService worker = Executors.newFixedThreadPool(2);
     private final Handler main = new Handler(Looper.getMainLooper());
     private LinearLayout page, binding;
     private TextView status, message;
     private GridLayout devices;
-    private boolean busy, active;
+    private boolean busy, refreshing, active;
     private String previous = "";
     private String lastFailure = "";
     private final Runnable poll = new Runnable() {
@@ -68,8 +68,8 @@ public final class MainActivity extends Activity {
         page.addView(text("OpenRemoteHub",14,true)); page.addView(text("设备网络",30,true));
         LinearLayout self = card(); status = text("正在启动 ORN…",17,true); self.addView(status);
         LinearLayout controls = new LinearLayout(this);
-        controls.addView(button("重新连接",() -> {api("/control",new JSONObject().put("action","reconnect"),"POST"); main.post(() -> info("已请求重新连接"));}));
-        controls.addView(button("刷新",() -> {previous=""; main.post(this::refresh);}));
+        controls.addView(button("重新连接",() -> {Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath(),Build.MANUFACTURER+" "+Build.MODEL); api("/control",new JSONObject().put("action","reconnect"),"POST"); onUI(() -> info("已请求重新连接"));}));
+        controls.addView(button("刷新",() -> {}));
         self.addView(controls); page.addView(self);
         message = text("",14,false); message.setTextColor(color(R.color.muted)); page.addView(message);
         binding = card(); page.addView(binding);
@@ -77,7 +77,7 @@ public final class MainActivity extends Activity {
         LinearLayout options = new LinearLayout(this);
         options.addView(button("网络诊断",() -> {
             Object result=api("/netcheck",new JSONObject(),"POST");
-            main.post(() -> new AlertDialog.Builder(this).setTitle("网络诊断").setMessage(result.toString()).setPositiveButton("关闭",null).show());
+            onUI(() -> {if (active) new AlertDialog.Builder(this).setTitle("网络诊断").setMessage(result.toString()).setPositiveButton("关闭",null).show();});
         }));
         Button leave = new Button(this); leave.setText("退出网络"); leave.setAllCaps(false);
         leave.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("退出当前网络？")
@@ -96,9 +96,9 @@ public final class MainActivity extends Activity {
             return insets;
         });
     }
-    @Override public void onResume() { super.onResume(); active=true; main.post(poll); }
+    @Override public void onResume() { super.onResume(); active=true; onUI(poll); }
     @Override public void onPause() { active=false; main.removeCallbacks(poll); super.onPause(); }
-    @Override public void onDestroy() { worker.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
     private Object api(String path,JSONObject body,String method) throws Exception {
         String token=Mobile.token();
         if (token.isEmpty()) throw new IOException(OrnService.error.isEmpty()?"ORN 正在启动，请稍候":OrnService.error);
@@ -127,25 +127,29 @@ public final class MainActivity extends Activity {
         if (busy) return; busy=true; button.setEnabled(false);
         worker.execute(() -> {
             try { work.run(); }
-            catch (Exception error) { main.post(() -> info(error.getMessage())); }
-            finally { main.post(() -> { busy=false; button.setEnabled(true); previous=""; refresh(); }); }
+            catch (Exception error) { onUI(() -> info(error.getMessage())); }
+            finally { onUI(() -> { busy=false; button.setEnabled(true); previous=""; refresh(); }); }
         });
+    }
+    private void onUI(Runnable work) {
+        main.post(() -> {if (!isDestroyed()&&!isFinishing()) work.run();});
     }
     private void info(String value) { message.setText(value); }
     private void refresh() {
-        if (busy||!active) return;
-        busy=true;
+        if (busy||refreshing||!active) return;
+        refreshing=true;
         worker.execute(() -> {
             try {
                 JSONObject self=(JSONObject)api("/status",null,"GET");
                 JSONArray peers=(JSONArray)api("/peers",null,"GET");
                 String snapshot=self.toString()+peers.toString();
-                main.post(() -> {
+                onUI(() -> {
+                    if (busy) return;
                     if (!lastFailure.isEmpty()) { info(""); lastFailure=""; }
                     if (!snapshot.equals(previous)) { render(self,peers); previous=snapshot; }
                 });
-            } catch (Exception error) { main.post(() -> {lastFailure=error.getMessage(); info(lastFailure);}); }
-            finally { main.post(() -> busy=false); }
+            } catch (Exception error) { onUI(() -> {lastFailure=error.getMessage(); info(lastFailure);}); }
+            finally { onUI(() -> refreshing=false); }
         });
     }
     private String ips(JSONObject peer) {
@@ -163,7 +167,7 @@ public final class MainActivity extends Activity {
             if (cloud!=null&&cloud.has("pending")) {
                 JSONObject pending=cloud.optJSONObject("pending");
                 binding.addView(text(pending.optString("user_code"),24,true));
-                binding.addView(button("前往 Cloud 确认绑定",() -> main.post(() -> open(pending.optString("verification_url")))));
+                binding.addView(button("前往 Cloud 确认绑定",() -> onUI(() -> open(pending.optString("verification_url")))));
             } else {
                 binding.addView(button("绑定账号",() -> api("/cloud/bind",new JSONObject().put("cloud_url","https://cloud.openremotehub.top"),"POST")));
             }
@@ -187,16 +191,16 @@ public final class MainActivity extends Activity {
             LinearLayout actions=new LinearLayout(this);
             actions.addView(button("检测",() -> {
                 JSONObject result=(JSONObject)api("/ping",new JSONObject().put("peer_ip",ip),"POST");
-                main.post(() -> info(result.optString("Err").isEmpty()?peer.optString("hostname")+" · "+Math.round(result.optDouble("LatencySeconds")*1000)+" ms":result.optString("Err")));
+                onUI(() -> info(result.optString("Err").isEmpty()?peer.optString("hostname")+" · "+Math.round(result.optDouble("LatencySeconds")*1000)+" ms":result.optString("Err")));
             }));
             actions.addView(button("控制台",() -> {
                 JSONObject result=(JSONObject)api("/console",new JSONObject().put("peer_ip",ip),"POST");
-                main.post(() -> open(result.optString("url")));
+                onUI(() -> open(result.optString("url")));
             }));
             entry.addView(actions);
             Button desktop=button("远程桌面",() -> {
                 JSONObject result=(JSONObject)api("/forwards",new JSONObject().put("peer_ip",ip).put("remote_port",21118),"POST");
-                main.post(() -> desktop(result.optString("address")));
+                onUI(() -> desktop(result.optString("address")));
             });
             desktop.setEnabled(peer.optBoolean("online")); entry.addView(desktop); devices.addView(entry);
         }

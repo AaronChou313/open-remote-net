@@ -22,6 +22,13 @@ func Start(directory, hostname string) error {
 	if running != nil {
 		return nil
 	}
+	logs := filepath.Join(directory, "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		return err
+	}
+	if err := os.Setenv("TS_LOGS_DIR", logs); err != nil {
+		return err
+	}
 	path := filepath.Join(directory, "config.json")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		cfg, _, loadErr := state.Load(path)
