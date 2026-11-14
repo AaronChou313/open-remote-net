@@ -1,0 +1,8 @@
+/dist/
+/.runtime/
+/local.properties
+/android/local.properties
+/android/.gradle/
+/android/**/build/
+*.aar
+*.log
