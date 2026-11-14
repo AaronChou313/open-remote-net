@@ -281,7 +281,8 @@ func (s *Server) cloudAdopt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var devices []struct {
-		ID string `json:"instance_id"`
+		ID   string `json:"instance_id"`
+		Self bool   `json:"self"`
 	}
 	if !current.Bound {
 		if err = cloudclient.Call(r.Context(), base, "/agent/directory", input.DeviceToken, nil, &devices); err != nil {
@@ -290,7 +291,7 @@ func (s *Server) cloudAdopt(w http.ResponseWriter, r *http.Request) {
 		}
 		found := false
 		for _, device := range devices {
-			if device.ID == input.DeviceID {
+			if device.ID == input.DeviceID && device.Self {
 				found = true
 			}
 		}
