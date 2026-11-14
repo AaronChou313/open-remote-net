@@ -66,10 +66,15 @@ Go 核心复用 desktop 的 mesh、Cloud、LocalAPI 和转发逻辑。Android �
 ## 实测与验收范围
 
 - M1 已通过。用户确认 Mac 经 ORN 操作 Windows 桌面。ECS 两个隔离节点在 direct 与强制 DERP 模式分别完成双向 114,688 字节传输，region 999。断开容器网络后原进程约 1.48 秒恢复。
-- M2 已切换 LocalAPI。真实 Cloud 登录进入 Mac 控制台，Zellij 命令执行及重连、Docker、文件浏览和 DSH 均可用。断开 Mac 原生网络客户端后，ORN 和控制台仍可使用。原客户端已恢复连接，供 Windows 安装 ORN 前过渡使用。
+- M2 已切换 LocalAPI。真实 Cloud 登录进入 Mac 控制台，Zellij 命令执行及重连、Docker、文件浏览和 DSH 均可用。断开 Mac 原生网络客户端后，ORN 和控制台仍可使用。Windows 用户已确认安装绑定后远程桌面连接正常。迁移验收期间保留原客户端。
 - M3 已通过真实双账号、各两节点隔离。账号内 TCP 正常，跨账号原始 Dial 超时。解绑删除实际节点，原进程重新绑定后恢复转发。删除测试账号同步清理其全部网络节点。headscale 重启后 Cloud socket 仍可访问。
 - M4 已生成 debug APK，通过 Go race tests、Android 构建与 lint。Android 15 arm64 模拟器完成真实 Cloud 绑定、账号隔离、7,680 字节 TCP 回环及 WiFi 关闭/恢复，原进程在约 3.1 秒恢复连接。
 
 Vivo Pad Air、实际蜂窝/校园网、真机 RustDesk Intent、后台省电行为、横屏视觉，以及 Windows ORN 安装和移除旧客户端后的整体验收仍需在对应设备完成。Android 模拟器的网络与服务已验证，原生页面尚未完成视觉验收。
 
 上游 Go 与依赖许可随安装包提供 `THIRD_PARTY_NOTICES.txt`，Android APK 也内置该文件。源码中的软件名称与许可证归各自权利人。
+
+
+### Android 0.1.1 修复
+
+RustDesk 深链保留 `127.0.0.1:端口` 中的字面冒号，兼容 RustDesk 直接读取 Dart `Uri.path` 的行为。Android SDK instrumentation 已复现旧链接的 `%3A` 并验证新链接。版本码递增，可直接覆盖安装并保留绑定；平板实际桌面连接等待更新后复测。

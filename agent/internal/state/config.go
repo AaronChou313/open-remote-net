@@ -39,7 +39,17 @@ func Load(path string) (Config, string, error) {
 	cfg := Config{ControlURL: "https://hs.openremotehub.top", Hostname: hostname + "-orn", StateDir: filepath.Join(filepath.Dir(path), "state"), APIAddr: "127.0.0.1:4789", Cloud: Cloud{BaseURL: "https://cloud.openremotehub.top"}, Publish: map[int]string{21118: "127.0.0.1:21118"}}
 	data, err := os.ReadFile(path)
 	if err == nil {
-		err = json.Unmarshal(data, &cfg)
+		var saved struct {
+			Publish json.RawMessage `json:"publish"`
+		}
+		err = json.Unmarshal(data, &saved)
+		if err == nil {
+			// An explicit publication map replaces defaults, including {}.
+			if saved.Publish != nil {
+				cfg.Publish = nil
+			}
+			err = json.Unmarshal(data, &cfg)
+		}
 	} else if os.IsNotExist(err) {
 		err = Save(path, cfg)
 	}

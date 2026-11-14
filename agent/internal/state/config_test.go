@@ -36,3 +36,28 @@ func TestPrivatePersistentConfigAndToken(t *testing.T) {
 		t.Fatal("public LocalAPI listener accepted")
 	}
 }
+
+func TestPublishConfigurationReplacesDefaults(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		expected   int
+	}{
+		{"empty", `{"publish":{}}`, 0},
+		{"custom", `{"publish":{"19001":"127.0.0.1:19001"}}`, 1},
+		{"legacy", `{}`, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(test.body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _, err := Load(path)
+			if err != nil || len(cfg.Publish) != test.expected {
+				t.Fatal("publication map was merged with defaults", err, cfg.Publish)
+			}
+			if test.name == "custom" && cfg.Publish[21118] != "" {
+				t.Fatal("unexpected default port")
+			}
+		})
+	}
+}
