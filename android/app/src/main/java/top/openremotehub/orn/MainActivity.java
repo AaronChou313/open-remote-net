@@ -30,6 +30,8 @@ public final class MainActivity extends Activity {
     private String previous = "";
     private String lastFailure = "";
     private long lastUptime = -1;
+    private JSONArray directory;
+    private long directoryAt;
     private final Runnable poll = new Runnable() {
         @Override public void run() { if (active) { refresh(); main.postDelayed(this,5000); } }
     };
@@ -142,7 +144,8 @@ public final class MainActivity extends Activity {
                 JSONObject self=(JSONObject)api("/status",null,"GET");
                 JSONArray peers=(JSONArray)api("/peers",null,"GET");
                 JSONArray forwards=(JSONArray)api("/forwards",null,"GET");
-                String snapshot=self.toString()+peers.toString()+forwards.toString();
+                JSONArray directory=cloudDirectory();
+                String snapshot=self.toString()+peers.toString()+forwards.toString()+(directory==null?"":"d"+directory.toString());
                 long uptime=self.optLong("uptime_seconds",-1);
                 onUI(() -> {
                     if (busy) return;
@@ -150,7 +153,7 @@ public final class MainActivity extends Activity {
                         Diagnostics.log("core","检测到组网内核重启，运行时长由 "+lastUptime+" 秒变为 "+uptime+" 秒");
                     lastUptime=uptime;
                     if (!lastFailure.isEmpty()) { info(""); lastFailure=""; }
-                    if (!snapshot.equals(previous)) { render(self,peers,forwards,uptime); previous=snapshot; }
+                    if (!snapshot.equals(previous)) { render(self,peers,forwards,uptime,directory); previous=snapshot; }
                 });
             } catch (Exception error) { onUI(() -> {lastFailure=error.getMessage(); info(lastFailure);}); }
             finally { onUI(() -> refreshing=false); }
@@ -165,7 +168,35 @@ public final class MainActivity extends Activity {
         if (seconds<3600) return (seconds/60)+" 分 "+(seconds%60)+" 秒";
         return (seconds/3600)+" 小时 "+((seconds%3600)/60)+" 分";
     }
-    private void render(JSONObject self,JSONArray peers,JSONArray forwards,long uptime) {
+    /** Cloud directory changes slowly; refresh it at most once a minute. */
+    private JSONArray cloudDirectory() {
+        if (directory!=null&&System.currentTimeMillis()-directoryAt<60000) return directory;
+        try {
+            directory=(JSONArray)api("/directory",null,"GET");
+            directoryAt=System.currentTimeMillis();
+            return directory;
+        } catch (Exception unavailable) {
+            return directory;
+        }
+    }
+    /** Cloud directory tells which mesh IPs publish an ORH console (8765). */
+    private static boolean consoleAvailable(JSONArray directory,String ip) {
+        if (directory==null) return true;
+        for (int index=0;index<directory.length();index++) {
+            JSONObject device=directory.optJSONObject(index);
+            JSONObject mesh=device==null?null:device.optJSONObject("mesh");
+            if (mesh==null) continue;
+            JSONArray ips=mesh.optJSONArray("ips");
+            boolean matches=false;
+            for (int item=0;ips!=null&&item<ips.length();item++) if (ip.equals(ips.optString(item))) matches=true;
+            if (!matches) continue;
+            JSONArray services=mesh.optJSONArray("services");
+            for (int item=0;services!=null&&item<services.length();item++) if (services.optInt(item)==8765) return true;
+            return false;
+        }
+        return true;
+    }
+    private void render(JSONObject self,JSONArray peers,JSONArray forwards,long uptime,JSONArray directory) {
         JSONObject device=self.optJSONObject("device");
         int connections=0;
         for (int index=0;index<forwards.length();index++) connections+=forwards.optJSONObject(index).optInt("connections");
@@ -202,15 +233,19 @@ public final class MainActivity extends Activity {
             String path=peer.optString("path");
             entry.addView(text("direct".equals(path)?"直连":"relay".equals(path)?"中继":"待连接",14,true));
             String ip=ips(peer);
+            boolean console=consoleAvailable(directory,ip);
+            if (!console) detail.setText(detail.getText()+" · 仅远程桌面");
             LinearLayout actions=new LinearLayout(this);
             actions.addView(button("检测",() -> {
                 JSONObject result=(JSONObject)api("/ping",new JSONObject().put("peer_ip",ip),"POST");
                 onUI(() -> info(result.optString("Err").isEmpty()?peer.optString("hostname")+" · "+Math.round(result.optDouble("LatencySeconds")*1000)+" ms":result.optString("Err")));
             }));
-            actions.addView(button("控制台",() -> {
+            Button consoleButton=button("控制台",() -> {
                 JSONObject result=(JSONObject)api("/console",new JSONObject().put("peer_ip",ip),"POST");
                 onUI(() -> openConsole(result.optString("url"),ip,peer.optString("hostname")));
-            }));
+            });
+            consoleButton.setEnabled(console);
+            actions.addView(consoleButton);
             entry.addView(actions);
             Button desktop=button("远程桌面",() -> {
                 String address=desktopAddress(ip);
