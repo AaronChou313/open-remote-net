@@ -4,6 +4,8 @@ package mobile
 
 import (
 	"context"
+	"github.com/AaronChou313/open-remote-net/agent/internal/state"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -14,13 +16,25 @@ import (
 var mu sync.Mutex
 var running *agentapp.App
 
-func Start(directory string) error {
+func Start(directory, hostname string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if running != nil {
 		return nil
 	}
-	app, err := agentapp.Start(filepath.Join(directory, "config.json"), "0.1.0", "", "", false)
+	path := filepath.Join(directory, "config.json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		cfg, _, loadErr := state.Load(path)
+		if loadErr != nil {
+			return loadErr
+		}
+		cfg.Hostname = hostname
+		cfg.Publish = map[int]string{}
+		if err = state.Save(path, cfg); err != nil {
+			return err
+		}
+	}
+	app, err := agentapp.Start(path, "0.1.0", "", "", false)
 	if err != nil {
 		return err
 	}

@@ -30,8 +30,8 @@ public final class OrnService extends Service {
             .setContentText("设备网络正在运行").setContentIntent(open).setOngoing(true).build();
         startForeground(1,notification);
         worker.execute(() -> {
-            try { Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath()); error = ""; }
-            catch (Exception e) { error = "ORN 启动失败，请检查本地端口或重新打开应用"; }
+            try { Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath(),Build.MANUFACTURER+" "+Build.MODEL); error = ""; }
+            catch (Exception e) { error = "ORN 启动失败："+e.getMessage(); android.util.Log.e("ORN",error); }
         });
         connectivity = getSystemService(ConnectivityManager.class);
         callback = new ConnectivityManager.NetworkCallback() {

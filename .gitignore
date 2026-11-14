@@ -6,3 +6,5 @@
 /android/**/build/
 *.aar
 *.log
+
+/android/app/libs/
