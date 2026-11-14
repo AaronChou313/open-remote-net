@@ -16,3 +16,21 @@ jobs:
         with:
           name: orn-desktop
           path: dist/orn-agent-*
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+      - run: sh agent/packaging/build-android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orn-android-debug
+          path: dist/orn-android-arm64-debug.apk
