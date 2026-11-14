@@ -47,11 +47,14 @@ type Status struct {
 	Peers        []Peer   `json:"peers"`
 	Health       []string `json:"health"`
 	AuthURL      string   `json:"auth_url,omitempty"`
+	Network      string   `json:"network"`
+	MagicDNS     bool     `json:"magic_dns"`
 }
 type Node struct {
 	server    *tsnet.Server
 	mu        sync.Mutex
 	published []net.Listener
+	ports     map[int]bool
 }
 
 func New(cfg Config) *Node {
@@ -69,7 +72,7 @@ func New(cfg Config) *Node {
 	} else {
 		s.Logf = func(string, ...any) {}
 	}
-	return &Node{server: s}
+	return &Node{server: s, ports: map[int]bool{}}
 }
 func (n *Node) Start() error { return n.server.Start() }
 func (n *Node) Wait(ctx context.Context) error {
@@ -122,6 +125,10 @@ func (n *Node) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	out := Status{BackendState: raw.BackendState, Version: raw.Version, Device: peer(raw.Self), Peers: []Peer{}, Health: raw.Health, AuthURL: raw.AuthURL}
+	if raw.CurrentTailnet != nil {
+		out.Network = raw.CurrentTailnet.MagicDNSSuffix
+		out.MagicDNS = raw.CurrentTailnet.MagicDNSEnabled
+	}
 	for _, p := range raw.Peer {
 		out.Peers = append(out.Peers, peer(p))
 	}
@@ -186,7 +193,19 @@ func (n *Node) Logout(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return lc.Logout(ctx)
+	if err = lc.Logout(ctx); err == nil {
+		return nil
+	}
+	// A revoked headscale node may already have lost its control-client key.
+	// Remove its local profile even when the server logout cannot complete.
+	current, _, profileErr := lc.ProfileStatus(ctx)
+	if profileErr != nil {
+		return err
+	}
+	if current.ID != "" {
+		return lc.DeleteProfile(ctx, current.ID)
+	}
+	return lc.SwitchToEmptyProfile(ctx)
 }
 
 // Publish exposes only an explicitly configured local service to this node's ACL peers.
@@ -195,13 +214,17 @@ func (n *Node) Publish(port int, target string) error {
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 		return fmt.Errorf("发布目标必须是 loopback 服务")
 	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.ports[port] {
+		return nil
+	}
 	listener, err := n.server.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}
-	n.mu.Lock()
 	n.published = append(n.published, listener)
-	n.mu.Unlock()
+	n.ports[port] = true
 	go func() {
 		for {
 			incoming, err := listener.Accept()
@@ -277,5 +300,12 @@ func (n *Node) Login(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return lc.Start(ctx, ipn.Options{AuthKey: key})
+	prefs := ipn.NewPrefs()
+	prefs.Hostname = n.server.Hostname
+	prefs.ControlURL = n.server.ControlURL
+	prefs.WantRunning = true
+	if err = lc.Start(ctx, ipn.Options{AuthKey: key, UpdatePrefs: prefs}); err != nil {
+		return err
+	}
+	return lc.StartLoginInteractive(ctx)
 }

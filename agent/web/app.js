@@ -7,6 +7,8 @@ let peers = [];
 let selected;
 let connecting = false;
 let busy = false;
+let sharedWithORH=false;
+let cloudError="";
 const latency = new Map();
 function theme(dark) {document.documentElement.classList.toggle('dark',dark);$('#theme').textContent=dark?'☀':'☾';localStorage.setItem('orn-theme',dark?'dark':'light');}
 theme(localStorage.getItem('orn-theme') === 'dark' || !localStorage.getItem('orn-theme') && matchMedia('(prefers-color-scheme:dark)').matches);
@@ -29,8 +31,14 @@ async function refresh() {
  $('#tokenPanel').hidden=true;
  const running=status.backend_state==='Running';
  $('#self').innerHTML=`<div><h2>${escapeHTML(status.device.hostname || '此设备')}</h2><span class="muted">${escapeHTML(status.device.ips.join(' · ') || status.backend_state)}</span></div><span class="state ${running?'online':''}">${running?'已连接':escapeHTML(status.backend_state)}</span>`;
+ sharedWithORH=Boolean(status.cloud?.shared_with_orh);
+ const nextError=status.cloud?.error || '';
+ if(nextError) notice('Cloud · '+nextError,true);
+ else if(cloudError) notice('');
+ cloudError=nextError;
  $('#binding').hidden=Boolean(status.cloud?.bound);
  $('#bindingCode').innerHTML='';
+ if(status.cloud?.error) $('#bindingCode').textContent=status.cloud.error;
  if(status.cloud?.pending) $('#bindingCode').innerHTML=`<p>绑定码 <strong>${escapeHTML(status.cloud.pending.user_code)}</strong></p><a href="${escapeHTML(status.cloud.pending.verification_url)}" target="_blank" rel="noopener">前往 Cloud 确认绑定 ↗</a>`;
  peers=devices;renderPeers();
  $('#forwards').innerHTML=forwards.map(row=>`<div class="forward-row"><div><p>127.0.0.1:${row.local_port} → ${escapeHTML(row.peer_ip)}:${row.remote_port}</p><small>${row.connections} 个活动连接</small></div><button data-close="${escapeHTML(row.id)}">关闭转发</button></div>`).join('') || '<p class="empty">连接设备时会自动建立转发。</p>';
@@ -58,8 +66,21 @@ $('#forwardForm').onsubmit=event=>{event.preventDefault();action($('#submitForwa
 $('#tokenForm').onsubmit=event=>{event.preventDefault();token=$('#tokenInput').value.trim();localStorage.setItem('orn-api-token',token);refresh().then(()=>notice('')).catch(error=>notice(error.message,true));};
 $('#reconnect').onclick=event=>action(event.currentTarget,async()=>{await api('/control',{action:'reconnect'});await refresh();});
 $('#disconnect').onclick=event=>{if(confirm('断开此设备的 ORN 网络？'))action(event.currentTarget,async()=>{await api('/control',{action:'disconnect'});await refresh();});};
-$('#leave').onclick=event=>{if(confirm('退出当前网络并移除本机网络身份？重新加入需要绑定。'))action(event.currentTarget,async()=>{await api('/leave',{confirm:true});await refresh();});};
+$('#leave').onclick=event=>{if(confirm(sharedWithORH?'退出网络并解绑此设备的 Cloud 账号？ORH 统一登录也将失效，重新加入需要绑定。':'退出网络并解绑此设备？重新加入需要绑定。'))action(event.currentTarget,async()=>{await api('/leave',{confirm:true});await refresh();});};
 $('#netcheck').onclick=event=>action(event.currentTarget,async()=>{$('#diagnostic').textContent=JSON.stringify(await api('/netcheck',{}),null,2);});
 $('#bindForm').onsubmit=event=>{event.preventDefault();action(event.submitter,async()=>{await api('/cloud/bind',{cloud_url:$('#cloudURL').value.trim()});await refresh();});};
-refresh().catch(error=>notice(error.message,true));
+async function openIntent() {
+ const mode=fragment.has('console')?'console':fragment.has('connect')?'connect':null;
+ if(!mode) return;
+ const directory=await api('/directory');
+ const device=directory.find(row=>row.instance_id===fragment.get(mode));
+ if(!device) throw Error('该设备不属于此 ORN 绑定的账号。请在 Cloud 和 ORN 使用相同账号。');
+ const ip=device.mesh?.ips?.find(value=>!value.includes(':'));
+ if(!ip) throw Error('目标设备尚未加入 ORN。');
+ const result=await api('/'+mode,{peer_ip:ip,...(mode==='console'?{device_id:device.instance_id}:{remote_port:21118})});
+ history.replaceState(null,'',location.pathname);
+ if(mode==='console') location.assign(result.url);
+ else notice(result.launch_error || '已启动远程桌面 '+result.address);
+}
+refresh().then(openIntent).catch(error=>notice(error.message,true));
 setInterval(()=>{if(!document.hidden&&!busy&&!$('#forwardDialog').open)refresh().catch(error=>notice(error.message,true));},5000);

@@ -24,6 +24,7 @@ type Entry struct {
 	Kind        string    `json:"kind"`
 	URL         string    `json:"url,omitempty"`
 	DeviceID    string    `json:"device_id,omitempty"`
+	GatewayPort int       `json:"gateway_port,omitempty"`
 }
 type tunnel struct {
 	Entry
@@ -204,6 +205,10 @@ func (m *Manager) expire() {
 }
 func (m *Manager) Close() {
 	m.cancel()
+	m.CloseAll()
+}
+
+func (m *Manager) CloseAll() {
 	for _, t := range m.List() {
 		m.Delete(t.ID)
 	}

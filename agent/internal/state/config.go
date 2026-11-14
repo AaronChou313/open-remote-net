@@ -12,13 +12,14 @@ import (
 )
 
 type Cloud struct {
-	BaseURL         string  `json:"base_url"`
-	DeviceID        string  `json:"device_id"`
-	DeviceToken     string  `json:"device_token"`
-	UserCode        string  `json:"user_code,omitempty"`
-	VerificationURL string  `json:"verification_url,omitempty"`
-	Expires         float64 `json:"expires,omitempty"`
-	Bound           bool    `json:"bound"`
+	BaseURL           string  `json:"base_url"`
+	DeviceID          string  `json:"device_id"`
+	DeviceToken       string  `json:"device_token"`
+	UserCode          string  `json:"user_code,omitempty"`
+	VerificationURL   string  `json:"verification_url,omitempty"`
+	Expires           float64 `json:"expires,omitempty"`
+	Bound             bool    `json:"bound"`
+	ExternallyManaged bool    `json:"externally_managed,omitempty"`
 }
 type Config struct {
 	ControlURL string         `json:"control_url"`

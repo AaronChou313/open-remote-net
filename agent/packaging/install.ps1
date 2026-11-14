@@ -4,6 +4,8 @@ $Destination = Join-Path $env:LOCALAPPDATA "OpenRemoteHub\ORN"
 $Config = Join-Path $env:APPDATA "orn-agent\config.json"
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $Binary = Join-Path $Destination "orn-agent.exe"
+$Existing = Get-ScheduledTask -TaskName "OpenRemoteHub ORN" -ErrorAction SilentlyContinue
+if ($Existing) { Stop-ScheduledTask -TaskName "OpenRemoteHub ORN"; Start-Sleep -Seconds 1 }
 Copy-Item (Join-Path $Repo "dist\orn-agent-windows-amd64.exe") $Binary -Force
 $Action = New-ScheduledTaskAction -Execute $Binary -Argument "-config `"$Config`""
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
