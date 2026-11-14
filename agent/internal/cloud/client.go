@@ -21,12 +21,24 @@ func Base(value string) (string, error) {
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
+
+type HTTPError struct {
+	Status  int
+	Message string
+}
+
+func (e *HTTPError) Error() string { return e.Message }
+
 func Call(ctx context.Context, base, path, token string, body, result any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, "POST", base+path, bytes.NewReader(data))
+	method := "POST"
+	if body == nil {
+		method = "GET"
+	}
+	request, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -49,7 +61,7 @@ func Call(ctx context.Context, base, path, token string, body, result any) error
 		if message.Detail == "" {
 			message.Detail = fmt.Sprintf("Cloud 返回 HTTP %d", response.StatusCode)
 		}
-		return fmt.Errorf("%s", message.Detail)
+		return &HTTPError{Status: response.StatusCode, Message: message.Detail}
 	}
 	return json.NewDecoder(limited).Decode(result)
 }

@@ -204,6 +204,10 @@ func (m *Manager) expire() {
 }
 func (m *Manager) Close() {
 	m.cancel()
+	m.CloseAll()
+}
+
+func (m *Manager) CloseAll() {
 	for _, t := range m.List() {
 		m.Delete(t.ID)
 	}

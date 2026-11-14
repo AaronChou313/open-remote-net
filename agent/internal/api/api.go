@@ -28,6 +28,7 @@ type Server struct {
 	ConfigPath string
 	Version    string
 	cloudMu    sync.RWMutex
+	syncMu     sync.Mutex
 	cloudError string
 }
 
@@ -81,8 +82,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, value)
 	})
+	mux.HandleFunc("GET /api/v1/directory", s.directory)
 	mux.HandleFunc("GET /api/v1/cloud", s.cloudStatus)
 	mux.HandleFunc("POST /api/v1/cloud/bind", s.cloudBind)
+	mux.HandleFunc("POST /api/v1/cloud/adopt", s.cloudAdopt)
 	assets, _ := fs.Sub(web.Files, ".")
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +125,10 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, err)
 		return
 	}
-	reply(w, map[string]any{"backend_state": value.BackendState, "version": s.Version, "engine_version": value.Version, "device": value.Device, "health": value.Health, "auth_url": value.AuthURL, "publish": s.Config.Publish, "cloud": s.publicCloud()})
+	s.cloudMu.RLock()
+	publish := s.Config.Publish
+	s.cloudMu.RUnlock()
+	reply(w, map[string]any{"backend_state": value.BackendState, "version": s.Version, "engine_version": value.Version, "device": value.Device, "health": value.Health, "auth_url": value.AuthURL, "network": value.Network, "magic_dns": value.MagicDNS, "publish": publish, "cloud": s.publicCloud()})
 }
 func (s *Server) createForward(w http.ResponseWriter, r *http.Request) {
 	var input struct {
@@ -136,6 +142,10 @@ func (s *Server) createForward(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.Node.PeerIP(r.Context(), input.PeerIP); err != nil {
 		fail(w, 400, err)
+		return
+	}
+	if input.RemotePort < 1 || input.RemotePort > 65535 || input.LocalPort < 0 || input.LocalPort > 65535 {
+		fail(w, 400, fmt.Errorf("端口范围为 1–65535，本地自动端口可填 0"))
 		return
 	}
 	// Test the destination before returning a seemingly usable local endpoint.
@@ -210,11 +220,12 @@ func (s *Server) leave(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, fmt.Errorf("请确认退出当前网络并移除本机网络身份"))
 		return
 	}
-	if err := s.Node.Logout(r.Context()); err != nil {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	if err := s.unbind(r.Context()); err != nil {
 		fail(w, 503, err)
 		return
 	}
-	s.Forwards.Close()
 	reply(w, map[string]bool{"ok": true})
 }
 
