@@ -1,3 +1,5 @@
+> **本仓库已并入 [open-remote-hub](https://github.com/AaronChou313/open-remote-hub)。** 组网数据面现在位于 `mesh/`，Android 客户端位于 `client/android/`，安装、CI 与发布都在 ORH 单仓完成。本仓库只读归档，不再接受新提交。
+
 # Open Remote Net
 
 ORN 是 OpenRemoteHub 的组网子系统。Go 单二进制使用 userspace 网络，提供本地页面、设备状态、受控端口转发与 RustDesk 入口。源码依赖固定为 tsnet 1.104.7，需要 Go 1.27.4。
