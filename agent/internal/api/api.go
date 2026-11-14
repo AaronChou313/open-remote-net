@@ -238,6 +238,13 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	s.cloudMu.RLock()
+	ownID, localConsole := s.Config.Cloud.DeviceID, s.Config.Publish[8765]
+	s.cloudMu.RUnlock()
+	if input.DeviceID != "" && input.DeviceID == ownID && localConsole != "" {
+		reply(w, map[string]any{"url": "http://" + localConsole})
+		return
+	}
 	if _, err := s.Node.PeerIP(r.Context(), input.PeerIP); err != nil {
 		fail(w, 400, err)
 		return

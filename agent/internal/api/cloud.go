@@ -19,7 +19,7 @@ func (s *Server) publicCloud() map[string]any {
 	s.cloudMu.RLock()
 	defer s.cloudMu.RUnlock()
 	value := s.Config.Cloud
-	result := map[string]any{"bound": value.Bound, "device_id": value.DeviceID, "base_url": value.BaseURL, "error": s.cloudError}
+	result := map[string]any{"bound": value.Bound, "device_id": value.DeviceID, "shared_with_orh": value.ExternallyManaged, "base_url": value.BaseURL, "error": s.cloudError}
 	if !value.Bound && value.UserCode != "" && value.Expires > float64(time.Now().Unix()) {
 		result["pending"] = map[string]any{"user_code": value.UserCode, "verification_url": value.VerificationURL, "expires": value.Expires}
 	}

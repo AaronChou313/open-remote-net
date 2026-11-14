@@ -193,7 +193,19 @@ func (n *Node) Logout(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return lc.Logout(ctx)
+	if err = lc.Logout(ctx); err == nil {
+		return nil
+	}
+	// A revoked headscale node may already have lost its control-client key.
+	// Remove its local profile even when the server logout cannot complete.
+	current, _, profileErr := lc.ProfileStatus(ctx)
+	if profileErr != nil {
+		return err
+	}
+	if current.ID != "" {
+		return lc.DeleteProfile(ctx, current.ID)
+	}
+	return lc.SwitchToEmptyProfile(ctx)
 }
 
 // Publish exposes only an explicitly configured local service to this node's ACL peers.
@@ -288,7 +300,11 @@ func (n *Node) Login(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	if err = lc.Start(ctx, ipn.Options{AuthKey: key}); err != nil {
+	prefs := ipn.NewPrefs()
+	prefs.Hostname = n.server.Hostname
+	prefs.ControlURL = n.server.ControlURL
+	prefs.WantRunning = true
+	if err = lc.Start(ctx, ipn.Options{AuthKey: key, UpdatePrefs: prefs}); err != nil {
 		return err
 	}
 	return lc.StartLoginInteractive(ctx)

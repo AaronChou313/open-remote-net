@@ -8,6 +8,13 @@ case "$(uname -s):$(uname -m)" in
 esac
 binary="$root/dist/orn-agent-$target"
 if [ ! -f "$binary" ]; then printf '%s\n' "请先构建或下载 $binary"; exit 1; fi
+# Stop only this installed user service before replacing its executable.
+if [ "$target" = darwin-arm64 ]; then
+  label="gui/$(id -u)/top.openremotehub.orn"
+  if launchctl print "$label" >/dev/null 2>&1; then launchctl bootout "$label"; fi
+elif systemctl --user is-active --quiet orn-agent 2>/dev/null; then
+  systemctl --user stop orn-agent
+fi
 mkdir -p "$HOME/.local/bin"
 install -m 755 "$binary" "$HOME/.local/bin/orn-agent"
 if [ "$target" = darwin-arm64 ]; then

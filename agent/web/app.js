@@ -7,6 +7,8 @@ let peers = [];
 let selected;
 let connecting = false;
 let busy = false;
+let sharedWithORH=false;
+let cloudError="";
 const latency = new Map();
 function theme(dark) {document.documentElement.classList.toggle('dark',dark);$('#theme').textContent=dark?'☀':'☾';localStorage.setItem('orn-theme',dark?'dark':'light');}
 theme(localStorage.getItem('orn-theme') === 'dark' || !localStorage.getItem('orn-theme') && matchMedia('(prefers-color-scheme:dark)').matches);
@@ -29,6 +31,11 @@ async function refresh() {
  $('#tokenPanel').hidden=true;
  const running=status.backend_state==='Running';
  $('#self').innerHTML=`<div><h2>${escapeHTML(status.device.hostname || '此设备')}</h2><span class="muted">${escapeHTML(status.device.ips.join(' · ') || status.backend_state)}</span></div><span class="state ${running?'online':''}">${running?'已连接':escapeHTML(status.backend_state)}</span>`;
+ sharedWithORH=Boolean(status.cloud?.shared_with_orh);
+ const nextError=status.cloud?.error || '';
+ if(nextError) notice('Cloud · '+nextError,true);
+ else if(cloudError) notice('');
+ cloudError=nextError;
  $('#binding').hidden=Boolean(status.cloud?.bound);
  $('#bindingCode').innerHTML='';
  if(status.cloud?.error) $('#bindingCode').textContent=status.cloud.error;
@@ -59,7 +66,7 @@ $('#forwardForm').onsubmit=event=>{event.preventDefault();action($('#submitForwa
 $('#tokenForm').onsubmit=event=>{event.preventDefault();token=$('#tokenInput').value.trim();localStorage.setItem('orn-api-token',token);refresh().then(()=>notice('')).catch(error=>notice(error.message,true));};
 $('#reconnect').onclick=event=>action(event.currentTarget,async()=>{await api('/control',{action:'reconnect'});await refresh();});
 $('#disconnect').onclick=event=>{if(confirm('断开此设备的 ORN 网络？'))action(event.currentTarget,async()=>{await api('/control',{action:'disconnect'});await refresh();});};
-$('#leave').onclick=event=>{if(confirm('退出当前网络并移除本机网络身份？重新加入需要绑定。'))action(event.currentTarget,async()=>{await api('/leave',{confirm:true});await refresh();});};
+$('#leave').onclick=event=>{if(confirm(sharedWithORH?'退出网络并解绑此设备的 Cloud 账号？ORH 统一登录也将失效，重新加入需要绑定。':'退出网络并解绑此设备？重新加入需要绑定。'))action(event.currentTarget,async()=>{await api('/leave',{confirm:true});await refresh();});};
 $('#netcheck').onclick=event=>action(event.currentTarget,async()=>{$('#diagnostic').textContent=JSON.stringify(await api('/netcheck',{}),null,2);});
 $('#bindForm').onsubmit=event=>{event.preventDefault();action(event.submitter,async()=>{await api('/cloud/bind',{cloud_url:$('#cloudURL').value.trim()});await refresh();});};
 async function openIntent() {

@@ -24,6 +24,7 @@ type Entry struct {
 	Kind        string    `json:"kind"`
 	URL         string    `json:"url,omitempty"`
 	DeviceID    string    `json:"device_id,omitempty"`
+	GatewayPort int       `json:"gateway_port,omitempty"`
 }
 type tunnel struct {
 	Entry

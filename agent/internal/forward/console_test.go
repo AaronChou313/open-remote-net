@@ -3,6 +3,7 @@ package forward
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -24,12 +25,21 @@ func (d mappedDialer) Dial(ctx context.Context, network, address string) (net.Co
 func TestConsoleOriginCookieRedirectAndWebSocket(t *testing.T) {
 	const id = "f57bc9e0-1f1e-4c96-b4f8-c9e3be1f41c9"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != "100.64.0.20:8765" {
+		if r.Host != "100.64.0.20:8765" && r.Host != "100.64.0.20:8767" {
 			t.Errorf("upstream Host %q", r.Host)
 		}
 		switch r.URL.Path {
 		case "/.well-known/openremotehub":
 			json.NewEncoder(w).Encode(map[string]string{"service": "openremotehub", "instance_id": id})
+		case "/api/dsh/status":
+			w.Header().Set("Content-Security-Policy", "frame-src http://100.64.0.20:8767")
+			json.NewEncoder(w).Encode(map[string]any{"gateway_port": 8767})
+		case "/gateway-health":
+			if r.Host != "100.64.0.20:8767" {
+				t.Error("gateway Host not translated")
+			}
+			w.Header().Set("Content-Security-Policy", "frame-ancestors http://100.64.0.20:8765")
+			io.WriteString(w, "gateway ready")
 		case "/auth/cloud/start":
 			data, _ := json.Marshal(map[string]string{"device": id, "address": "http://100.64.0.20:8765", "state": "nonce"})
 			location := "https://cloud.example/#" + url.Values{"authorize": {string(data)}}.Encode()
@@ -75,8 +85,8 @@ func TestConsoleOriginCookieRedirectAndWebSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	redirect, _ := url.Parse(response.Header.Get("Location"))
-	fragment, _ := url.ParseQuery(redirect.Fragment)
+	_, browserFragment, _ := strings.Cut(response.Header.Get("Location"), "#")
+	fragment, _ := url.ParseQuery(browserFragment)
 	var intent map[string]string
 	json.Unmarshal([]byte(fragment.Get("authorize")), &intent)
 	if intent["address"] != entry.URL || intent["state"] != "nonce" {
@@ -84,6 +94,30 @@ func TestConsoleOriginCookieRedirectAndWebSocket(t *testing.T) {
 	}
 	if len(response.Cookies()) != 1 || response.Cookies()[0].Name != "orh_cloud_state" {
 		t.Fatal("nonce cookie missing")
+	}
+	response, err = client.Get(entry.URL + "/api/dsh/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dsh map[string]int
+	json.NewDecoder(response.Body).Decode(&dsh)
+	response.Body.Close()
+	if dsh["gateway_port"] != entry.GatewayPort || !strings.Contains(response.Header.Get("Content-Security-Policy"), fmt.Sprint(entry.GatewayPort)) {
+		t.Fatal("DSH gateway port or CSP not mapped")
+	}
+	gatewayURL := "http://" + origin.Hostname() + ":" + fmt.Sprint(entry.GatewayPort) + "/gateway-health"
+	gatewayTransport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort("127.0.0.1", fmt.Sprint(entry.GatewayPort)))
+	}}
+	gatewayClient := &http.Client{Transport: gatewayTransport}
+	response, err = gatewayClient.Get(gatewayURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	gatewayTransport.CloseIdleConnections()
+	if response.StatusCode != 200 || !strings.Contains(response.Header.Get("Content-Security-Policy"), entry.URL) {
+		t.Fatal("DSH gateway not mapped")
 	}
 	request, _ := http.NewRequest("GET", entry.URL+"/", nil)
 	request.Host = "attacker.example"
