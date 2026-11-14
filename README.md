@@ -78,3 +78,11 @@ Vivo Pad Air、实际蜂窝/校园网、真机 RustDesk Intent、后台省电行
 ### Android 0.1.1 修复
 
 RustDesk 深链保留 `127.0.0.1:端口` 中的字面冒号，兼容 RustDesk 直接读取 Dart `Uri.path` 的行为。Android SDK instrumentation 已复现旧链接的 `%3A` 并验证新链接。版本码递增，可直接覆盖安装并保留绑定；平板实际桌面连接等待更新后复测。
+
+### Android 0.1.2 连接保持
+
+同一设备的远程桌面复用已有转发，并保存本地端口，核心重启后再次进入仍使用该端口。RustDesk 的“记住密码”因此可以关联稳定入口；密码由 RustDesk 自己保存。
+
+首次进入远程桌面时，Android 会请求允许 ORN 后台运行。允许后继续打开 RustDesk，也可从 ORN 的“允许后台连接”进入系统设置。有活动转发时持有限时、持续续期的 partial wake lock，连接结束后释放。部分厂商还需在系统电池设置中允许后台高耗电。此授权由 Android 管理。[Android 后台网络说明](https://developer.android.com/training/monitoring-device-state/doze-standby)
+
+可选的 SDK instrumentation 测试接受 `-e peer <测试节点IP>`，测试节点需在组网端口 21118 发布隔离的 TCP echo 服务。测试会验证重复进入、150 秒后台传输、连接释放及核心重启后的端口复用。不得将真实 RustDesk 端口用于该 echo 测试。

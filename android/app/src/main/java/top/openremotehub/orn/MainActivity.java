@@ -7,6 +7,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.*;
+import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 import org.json.*;
@@ -22,6 +23,8 @@ public final class MainActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private LinearLayout page, binding;
     private TextView status, message;
+    private Button backgroundButton;
+    private String pendingDesktop;
     private GridLayout devices;
     private boolean busy, refreshing, active;
     private String previous = "";
@@ -71,6 +74,8 @@ public final class MainActivity extends Activity {
         controls.addView(button("重新连接",() -> {Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath(),Build.MANUFACTURER+" "+Build.MODEL); api("/control",new JSONObject().put("action","reconnect"),"POST"); onUI(() -> info("已请求重新连接"));}));
         controls.addView(button("刷新",() -> {}));
         self.addView(controls); page.addView(self);
+        backgroundButton=button("允许后台连接",() -> onUI(() -> requestBackground(null)));
+        self.addView(backgroundButton);
         message = text("",14,false); message.setTextColor(color(R.color.muted)); page.addView(message);
         binding = card(); page.addView(binding);
         devices = new GridLayout(this); page.addView(devices);
@@ -82,7 +87,10 @@ public final class MainActivity extends Activity {
         Button leave = new Button(this); leave.setText("退出网络"); leave.setAllCaps(false);
         leave.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("退出当前网络？")
             .setMessage("移除此设备的账号绑定和网络身份。重新连接需要绑定账号。")
-            .setNegativeButton("取消",null).setPositiveButton("退出",(dialog,which) -> perform(leave,() -> api("/leave",new JSONObject().put("confirm",true),"POST"))).show());
+            .setNegativeButton("取消",null).setPositiveButton("退出",(dialog,which) -> perform(leave,() -> {
+                api("/leave",new JSONObject().put("confirm",true),"POST");
+                getSharedPreferences("desktop",MODE_PRIVATE).edit().clear().apply();
+            })).show());
         options.addView(leave); page.addView(options);
         setContentView(scroll);
         // Keep controls clear of status/navigation bars under Android 15 edge-to-edge.
@@ -96,7 +104,11 @@ public final class MainActivity extends Activity {
             return insets;
         });
     }
-    @Override public void onResume() { super.onResume(); active=true; onUI(poll); }
+    @Override public void onResume() {
+        super.onResume(); active=true;
+        backgroundButton.setVisibility(backgroundAllowed()?View.GONE:View.VISIBLE);
+        onUI(poll);
+    }
     @Override public void onPause() { active=false; main.removeCallbacks(poll); super.onPause(); }
     @Override public void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
     private Object api(String path,JSONObject body,String method) throws Exception {
@@ -199,8 +211,8 @@ public final class MainActivity extends Activity {
             }));
             entry.addView(actions);
             Button desktop=button("远程桌面",() -> {
-                JSONObject result=(JSONObject)api("/forwards",new JSONObject().put("peer_ip",ip).put("remote_port",21118),"POST");
-                onUI(() -> desktop(result.optString("address")));
+                String address=desktopAddress(ip);
+                onUI(() -> desktop(address));
             });
             desktop.setEnabled(peer.optBoolean("online")); entry.addView(desktop); devices.addView(entry);
         }
@@ -214,7 +226,50 @@ public final class MainActivity extends Activity {
         // RustDesk reads Dart Uri.path directly, so keep the port colon literal.
         return Uri.parse("rustdesk://connection/new/"+address);
     }
+    String desktopAddress(String ip) throws Exception {
+        SharedPreferences saved=getSharedPreferences("desktop",MODE_PRIVATE);
+        JSONArray forwards=(JSONArray)api("/forwards",null,"GET");
+        for (int index=0;index<forwards.length();index++) {
+            JSONObject entry=forwards.getJSONObject(index);
+            if (entry.optString("kind").equals("tcp") && entry.optString("peer_ip").equals(ip) && entry.optInt("remote_port")==21118) {
+                int port=entry.getInt("local_port");
+                saved.edit().putInt(ip,port).apply();
+                return "127.0.0.1:"+port;
+            }
+        }
+        JSONObject result=(JSONObject)api("/forwards",new JSONObject().put("peer_ip",ip).put("remote_port",21118).put("local_port",saved.getInt(ip,0)),"POST");
+        saved.edit().putInt(ip,result.getJSONObject("forward").getInt("local_port")).apply();
+        return result.getString("address");
+    }
+    private boolean backgroundAllowed() {
+        return getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(getPackageName());
+    }
+    private void requestBackground(String address) {
+        pendingDesktop=address;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("background_requested",true).apply();
+        try {
+            startActivityForResult(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,Uri.parse("package:"+getPackageName())),2);
+        } catch (ActivityNotFoundException error) {
+            startActivityForResult(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),2);
+        }
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if (request==2 && pendingDesktop!=null) {
+            String address=pendingDesktop;
+            pendingDesktop=null;
+            openDesktop(address);
+        }
+    }
     private void desktop(String address) {
+        if (!backgroundAllowed() && !getPreferences(MODE_PRIVATE).getBoolean("background_requested",false)) {
+            requestBackground(address);
+            return;
+        }
+        openDesktop(address);
+    }
+    private void openDesktop(String address) {
+        startForegroundService(new Intent(this,OrnService.class).putExtra("desktop",true));
         Uri uri=rustDeskURI(address);
         try { startActivity(new Intent(Intent.ACTION_VIEW,uri)); }
         catch (ActivityNotFoundException error) {
