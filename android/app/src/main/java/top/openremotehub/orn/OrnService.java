@@ -16,7 +16,25 @@ public final class OrnService extends Service {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback callback;
+    private PowerManager.WakeLock connectionWakeLock;
+    private long desktopStartingUntil;
+    private boolean destroyed;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable maintainConnection = this::checkConnections;
+    private void checkConnections() {
+        worker.execute(() -> {
+            boolean connected=Mobile.activeForwards()>0;
+            main.post(() -> {
+                if (destroyed) return;
+                if (connected || SystemClock.elapsedRealtime()<desktopStartingUntil) {
+                    connectionWakeLock.acquire(90000);
+                } else if (connectionWakeLock.isHeld()) {
+                    connectionWakeLock.release();
+                }
+                main.postDelayed(maintainConnection,15000);
+            });
+        });
+    }
     private final Runnable rebind = () -> worker.execute(() -> {
         try { Mobile.updateNetwork(networkInfo()); Mobile.rebind(); } catch (Exception e) { error = "网络切换后正在重连"; }
     });
@@ -31,6 +49,8 @@ public final class OrnService extends Service {
             .setSmallIcon(R.drawable.ic_orn).setContentTitle("OpenRemoteHub · ORN")
             .setContentText("正在启动设备网络").setContentIntent(open).setOngoing(true).build();
         startForeground(1,notification);
+        connectionWakeLock=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"OpenRemoteHub:Forwarding");
+        connectionWakeLock.setReferenceCounted(false);
         connectivity = getSystemService(ConnectivityManager.class);
         callback = new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network network) { scheduleRebind(); }
@@ -71,6 +91,10 @@ public final class OrnService extends Service {
         main.postDelayed(rebind,1500);
     }
     @Override public int onStartCommand(Intent intent,int flags,int id) {
+        if (intent!=null && intent.getBooleanExtra("desktop",false)) {
+            desktopStartingUntil=SystemClock.elapsedRealtime()+90000;
+            connectionWakeLock.acquire(90000);
+        }
         worker.execute(this::startRuntime);
         return START_STICKY;
     }
@@ -80,6 +104,11 @@ public final class OrnService extends Service {
             Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath(),Build.MANUFACTURER+" "+Build.MODEL);
             error="";
             updateNotification("ORN 正在运行，点击管理设备");
+            main.post(() -> {
+                if (destroyed) return;
+                main.removeCallbacks(maintainConnection);
+                main.post(maintainConnection);
+            });
         } catch (Exception e) {
             error="ORN 启动失败："+e.getMessage();
             android.util.Log.e("ORN",error);
@@ -94,8 +123,11 @@ public final class OrnService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() {
+        destroyed=true;
         connectivity.unregisterNetworkCallback(callback);
         main.removeCallbacks(rebind);
+        main.removeCallbacks(maintainConnection);
+        if (connectionWakeLock.isHeld()) connectionWakeLock.release();
         worker.execute(() -> { try { Mobile.stop(); } catch (Exception ignored) {} });
         worker.shutdown();
         super.onDestroy();

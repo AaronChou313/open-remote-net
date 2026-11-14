@@ -41,7 +41,7 @@ func Start(directory, hostname string) error {
 			return err
 		}
 	}
-	app, err := agentapp.Start(path, "0.1.1", "", "", false)
+	app, err := agentapp.Start(path, "0.1.2", "", "", false)
 	if err != nil {
 		return err
 	}
@@ -65,6 +65,22 @@ func Token() string {
 		return ""
 	}
 	return running.Token
+}
+
+// ActiveForwards lets the Android foreground service hold a wake lock only
+// while another app is using an ORN connection.
+func ActiveForwards() int {
+	mu.Lock()
+	app := running
+	mu.Unlock()
+	if app == nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range app.API.Forwards.List() {
+		count += entry.Connections
+	}
+	return count
 }
 func Rebind() error {
 	mu.Lock()
