@@ -142,7 +142,7 @@ public final class OrnService extends Service {
     private Notification notification(String status) {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, "orn")
-            .setSmallIcon(R.drawable.ic_orn).setContentTitle("OpenRemoteHub · ORN")
+            .setSmallIcon(R.drawable.ic_orn).setContentTitle("ORH · 设备网络")
             .setContentText(status).setContentIntent(open).setOngoing(true).build();
     }
 

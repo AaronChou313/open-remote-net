@@ -71,7 +71,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
         scroll.setBackgroundColor(color(R.color.surface));
         page = column(); page.setPadding(dp(20),dp(24),dp(20),dp(24)); scroll.addView(page);
-        page.addView(text("OpenRemoteHub",14,true)); page.addView(text("设备网络",30,true));
+        page.addView(text("ORH",14,true)); page.addView(text("设备网络",30,true));
         LinearLayout self = card(); status = text("正在启动 ORN…",17,true); self.addView(status);
         LinearLayout controls = new LinearLayout(this);
         controls.addView(button("重新连接",() -> {Mobile.start(new File(getFilesDir(),"orn").getAbsolutePath(),Build.MANUFACTURER+" "+Build.MODEL); api("/control",new JSONObject().put("action","reconnect"),"POST"); onUI(() -> info("已请求重新连接"));}));
@@ -120,28 +120,7 @@ public final class MainActivity extends Activity {
     @Override public void onPause() { active=false; main.removeCallbacks(poll); Diagnostics.log("ui","页面暂停"); super.onPause(); }
     @Override public void onDestroy() { Diagnostics.log("ui","页面销毁"); worker.shutdownNow(); super.onDestroy(); }
     private Object api(String path,JSONObject body,String method) throws Exception {
-        String token=Mobile.token();
-        if (token.isEmpty()) throw new IOException(OrnService.error.isEmpty()?"ORN 正在启动，请稍候":OrnService.error);
-        HttpURLConnection connection=(HttpURLConnection)new URL("http://127.0.0.1:4789/api/v1"+path).openConnection();
-        connection.setConnectTimeout(5000); connection.setReadTimeout(18000); connection.setRequestMethod(method);
-        connection.setRequestProperty("Authorization","Bearer "+token);
-        try {
-            if (body!=null) {
-                connection.setDoOutput(true); connection.setRequestProperty("Content-Type","application/json");
-                try (OutputStream output=connection.getOutputStream()) { output.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
-            }
-            int code=connection.getResponseCode();
-            InputStream stream=code>=400?connection.getErrorStream():connection.getInputStream();
-            String content;
-            try (BufferedReader input=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8))) {
-                StringBuilder result=new StringBuilder(); String line;
-                while ((line=input.readLine())!=null) result.append(line);
-                content=result.toString();
-            }
-            Object result=new JSONTokener(content).nextValue();
-            if (code>=400) throw new IOException(result instanceof JSONObject?((JSONObject)result).optString("detail","操作未完成"):"操作未完成");
-            return result;
-        } finally { connection.disconnect(); }
+        return LocalApi.call(path,body,method);
     }
     private void perform(Button button,Work work) {
         if (busy) return; busy=true; button.setEnabled(false);
@@ -230,7 +209,7 @@ public final class MainActivity extends Activity {
             }));
             actions.addView(button("控制台",() -> {
                 JSONObject result=(JSONObject)api("/console",new JSONObject().put("peer_ip",ip),"POST");
-                onUI(() -> open(result.optString("url")));
+                onUI(() -> openConsole(result.optString("url"),ip,peer.optString("hostname")));
             }));
             entry.addView(actions);
             Button desktop=button("远程桌面",() -> {
@@ -240,6 +219,11 @@ public final class MainActivity extends Activity {
             desktop.setEnabled(peer.optBoolean("online")); entry.addView(desktop); devices.addView(entry);
         }
         if (peers.length()==0) devices.addView(text("将其他设备绑定到同一账号后显示在这里。",15,false));
+    }
+    private void openConsole(String url,String ip,String name) {
+        Diagnostics.log("console","打开 "+name+" · "+url);
+        startActivity(new Intent(this,ConsoleActivity.class)
+            .putExtra("url",url).putExtra("peer_ip",ip).putExtra("name",name));
     }
     private void open(String url) {
         try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url))); }
