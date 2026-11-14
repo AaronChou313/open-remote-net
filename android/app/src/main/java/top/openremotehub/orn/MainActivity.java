@@ -210,8 +210,12 @@ public final class MainActivity extends Activity {
         try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url))); }
         catch (ActivityNotFoundException error) { info("此设备没有可用的浏览器"); }
     }
+    static Uri rustDeskURI(String address) {
+        // RustDesk reads Dart Uri.path directly, so keep the port colon literal.
+        return Uri.parse("rustdesk://connection/new/"+address);
+    }
     private void desktop(String address) {
-        Uri uri=new Uri.Builder().scheme("rustdesk").authority("connection").appendPath("new").appendPath(address).build();
+        Uri uri=rustDeskURI(address);
         try { startActivity(new Intent(Intent.ACTION_VIEW,uri)); }
         catch (ActivityNotFoundException error) {
             getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("ORN 连接地址",address));
