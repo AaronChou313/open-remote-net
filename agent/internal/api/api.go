@@ -27,6 +27,8 @@ type Server struct {
 	Config     state.Config
 	ConfigPath string
 	Version    string
+	Started    time.Time
+	Platform   string
 	cloudMu    sync.RWMutex
 	syncMu     sync.Mutex
 	cloudError string
@@ -83,6 +85,7 @@ func (s *Server) Handler() http.Handler {
 		reply(w, value)
 	})
 	mux.HandleFunc("GET /api/v1/directory", s.directory)
+	mux.HandleFunc("GET /api/v1/diagnostics", s.diagnostics)
 	mux.HandleFunc("GET /api/v1/cloud", s.cloudStatus)
 	mux.HandleFunc("POST /api/v1/cloud/bind", s.cloudBind)
 	mux.HandleFunc("POST /api/v1/cloud/adopt", s.cloudAdopt)
@@ -128,7 +131,11 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	s.cloudMu.RLock()
 	publish := s.Config.Publish
 	s.cloudMu.RUnlock()
-	reply(w, map[string]any{"backend_state": value.BackendState, "version": s.Version, "engine_version": value.Version, "device": value.Device, "health": value.Health, "auth_url": value.AuthURL, "network": value.Network, "magic_dns": value.MagicDNS, "publish": publish, "cloud": s.publicCloud()})
+	uptime := int64(0)
+	if !s.Started.IsZero() {
+		uptime = int64(time.Since(s.Started).Seconds())
+	}
+	reply(w, map[string]any{"backend_state": value.BackendState, "version": s.Version, "engine_version": value.Version, "device": value.Device, "health": value.Health, "auth_url": value.AuthURL, "network": value.Network, "magic_dns": value.MagicDNS, "publish": publish, "cloud": s.publicCloud(), "uptime_seconds": uptime})
 }
 func (s *Server) createForward(w http.ResponseWriter, r *http.Request) {
 	var input struct {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ func Start(path, version, auth, controlURL string, debug bool) (*App, error) {
 		return nil, err
 	}
 	forwards := forward.New(node)
-	handler := &api.Server{Node: node, Forwards: forwards, Token: token, Config: cfg, ConfigPath: path, Version: version}
+	handler := &api.Server{Node: node, Forwards: forwards, Token: token, Config: cfg, ConfigPath: path, Version: version, Started: time.Now(), Platform: runtime.GOOS}
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{Node: node, API: handler, Config: cfg, Token: token, cancel: cancel, done: make(chan struct{})}
 	a.http = &http.Server{Handler: handler.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}

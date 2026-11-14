@@ -14,7 +14,7 @@ import (
 	"github.com/AaronChou313/open-remote-net/agent/internal/state"
 )
 
-var version = "0.1.0"
+var version = "0.1.3"
 
 func main() {
 	path := flag.String("config", state.DefaultPath(), "配置文件")

@@ -11,6 +11,7 @@
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
-        <service android:name=".OrnService" android:foregroundServiceType="connectedDevice" android:exported="false" />
+        <service android:name=".OrnService" android:foregroundServiceType="connectedDevice" android:exported="false" android:stopWithTask="false" />
+        <receiver android:name=".Watchdog" android:exported="false" />
     </application>
 </manifest>

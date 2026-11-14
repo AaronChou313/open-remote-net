@@ -29,6 +29,7 @@ public final class MainActivity extends Activity {
     private boolean busy, refreshing, active;
     private String previous = "";
     private String lastFailure = "";
+    private long lastUptime = -1;
     private final Runnable poll = new Runnable() {
         @Override public void run() { if (active) { refresh(); main.postDelayed(this,5000); } }
     };
@@ -36,6 +37,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        Diagnostics.attach(this);
+        Diagnostics.log("ui","页面创建");
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},1);
         startForegroundService(new Intent(this,OrnService.class));
         build();
@@ -91,6 +94,10 @@ public final class MainActivity extends Activity {
                 api("/leave",new JSONObject().put("confirm",true),"POST");
                 getSharedPreferences("desktop",MODE_PRIVATE).edit().clear().apply();
             })).show());
+        Button diagnose=new Button(this); diagnose.setText("连接诊断"); diagnose.setAllCaps(false);
+        diagnose.setOnClickListener(view -> diagnose());
+        options.addView(diagnose);
+        options.addView(button("厂商后台设置",() -> openVendorSettings()));
         options.addView(leave); page.addView(options);
         setContentView(scroll);
         // Keep controls clear of status/navigation bars under Android 15 edge-to-edge.
@@ -106,11 +113,12 @@ public final class MainActivity extends Activity {
     }
     @Override public void onResume() {
         super.onResume(); active=true;
+        Diagnostics.log("ui","页面恢复");
         backgroundButton.setVisibility(backgroundAllowed()?View.GONE:View.VISIBLE);
         onUI(poll);
     }
-    @Override public void onPause() { active=false; main.removeCallbacks(poll); super.onPause(); }
-    @Override public void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
+    @Override public void onPause() { active=false; main.removeCallbacks(poll); Diagnostics.log("ui","页面暂停"); super.onPause(); }
+    @Override public void onDestroy() { Diagnostics.log("ui","页面销毁"); worker.shutdownNow(); super.onDestroy(); }
     private Object api(String path,JSONObject body,String method) throws Exception {
         String token=Mobile.token();
         if (token.isEmpty()) throw new IOException(OrnService.error.isEmpty()?"ORN 正在启动，请稍候":OrnService.error);
@@ -154,11 +162,16 @@ public final class MainActivity extends Activity {
             try {
                 JSONObject self=(JSONObject)api("/status",null,"GET");
                 JSONArray peers=(JSONArray)api("/peers",null,"GET");
-                String snapshot=self.toString()+peers.toString();
+                JSONArray forwards=(JSONArray)api("/forwards",null,"GET");
+                String snapshot=self.toString()+peers.toString()+forwards.toString();
+                long uptime=self.optLong("uptime_seconds",-1);
                 onUI(() -> {
                     if (busy) return;
+                    if (lastUptime>=0&&uptime>=0&&uptime<lastUptime)
+                        Diagnostics.log("core","检测到组网内核重启，运行时长由 "+lastUptime+" 秒变为 "+uptime+" 秒");
+                    lastUptime=uptime;
                     if (!lastFailure.isEmpty()) { info(""); lastFailure=""; }
-                    if (!snapshot.equals(previous)) { render(self,peers); previous=snapshot; }
+                    if (!snapshot.equals(previous)) { render(self,peers,forwards,uptime); previous=snapshot; }
                 });
             } catch (Exception error) { onUI(() -> {lastFailure=error.getMessage(); info(lastFailure);}); }
             finally { onUI(() -> refreshing=false); }
@@ -168,9 +181,19 @@ public final class MainActivity extends Activity {
         JSONArray addresses=peer.optJSONArray("ips");
         return addresses!=null&&addresses.length()>0?addresses.optString(0):"等待分配地址";
     }
-    private void render(JSONObject self,JSONArray peers) {
+    private static String duration(long seconds) {
+        if (seconds<60) return seconds+" 秒";
+        if (seconds<3600) return (seconds/60)+" 分 "+(seconds%60)+" 秒";
+        return (seconds/3600)+" 小时 "+((seconds%3600)/60)+" 分";
+    }
+    private void render(JSONObject self,JSONArray peers,JSONArray forwards,long uptime) {
         JSONObject device=self.optJSONObject("device");
-        status.setText((device==null?"此设备":device.optString("hostname"))+"\n"+(device==null?"":ips(device))+" · "+("Running".equals(self.optString("backend_state"))?"已连接":self.optString("backend_state")));
+        int connections=0;
+        for (int index=0;index<forwards.length();index++) connections+=forwards.optJSONObject(index).optInt("connections");
+        String line=(device==null?"":ips(device))+" · "+("Running".equals(self.optString("backend_state"))?"已连接":self.optString("backend_state"));
+        if (uptime>=0) line+=" · 运行 "+duration(uptime);
+        if (connections>0) line+=" · "+connections+" 个连接";
+        status.setText((device==null?"此设备":device.optString("hostname"))+"\n"+line);
         JSONObject cloud=self.optJSONObject("cloud");
         binding.removeAllViews();
         boolean bound=cloud!=null&&cloud.optBoolean("bound"); binding.setVisibility(bound?View.GONE:View.VISIBLE);
@@ -226,6 +249,10 @@ public final class MainActivity extends Activity {
         // RustDesk reads Dart Uri.path directly, so keep the port colon literal.
         return Uri.parse("rustdesk://connection/new/"+address);
     }
+    /** Keeps the endpoint stable so a restarted core can rebuild the same forward. */
+    private void remember(SharedPreferences saved,String ip,int port) {
+        saved.edit().putInt(ip,port).putString("peer_ip",ip).putInt("remote_port",21118).putInt("local_port",port).putLong("until",System.currentTimeMillis()+600000).apply();
+    }
     String desktopAddress(String ip) throws Exception {
         SharedPreferences saved=getSharedPreferences("desktop",MODE_PRIVATE);
         JSONArray forwards=(JSONArray)api("/forwards",null,"GET");
@@ -233,12 +260,12 @@ public final class MainActivity extends Activity {
             JSONObject entry=forwards.getJSONObject(index);
             if (entry.optString("kind").equals("tcp") && entry.optString("peer_ip").equals(ip) && entry.optInt("remote_port")==21118) {
                 int port=entry.getInt("local_port");
-                saved.edit().putInt(ip,port).apply();
+                remember(saved,ip,port);
                 return "127.0.0.1:"+port;
             }
         }
         JSONObject result=(JSONObject)api("/forwards",new JSONObject().put("peer_ip",ip).put("remote_port",21118).put("local_port",saved.getInt(ip,0)),"POST");
-        saved.edit().putInt(ip,result.getJSONObject("forward").getInt("local_port")).apply();
+        remember(saved,ip,result.getJSONObject("forward").getInt("local_port"));
         return result.getString("address");
     }
     private boolean backgroundAllowed() {
@@ -269,12 +296,76 @@ public final class MainActivity extends Activity {
         openDesktop(address);
     }
     private void openDesktop(String address) {
+        Diagnostics.log("desktop","发起远程桌面 "+address);
+        getSharedPreferences("desktop",MODE_PRIVATE).edit().putLong("until",System.currentTimeMillis()+600000).apply();
         startForegroundService(new Intent(this,OrnService.class).putExtra("desktop",true));
         Uri uri=rustDeskURI(address);
         try { startActivity(new Intent(Intent.ACTION_VIEW,uri)); }
         catch (ActivityNotFoundException error) {
+            Diagnostics.log("desktop","未安装 RustDesk，已复制地址");
             getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("ORN 连接地址",address));
             new AlertDialog.Builder(this).setTitle("打开 RustDesk").setMessage("请安装 RustDesk。连接地址已复制："+address).setPositiveButton("关闭",null).show();
         }
+    }
+    /** Some OEM builds keep killing background services regardless of the standard exemption. */
+    private void openVendorSettings() {
+        Diagnostics.log("ui","打开厂商后台设置");
+        String[][] targets={
+            {"com.vivo.permissionmanager","com.vivo.permissionmanager.activity.BgStartUpManagerActivity"},
+            {"com.iqoo.secure","com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"},
+            {"com.miui.securitycenter","com.miui.permcenter.autostart.AutoStartManagementActivity"},
+            {"com.coloros.safecenter","com.coloros.safecenter.permission.startup.StartupAppListActivity"},
+        };
+        for (String[] target:targets) {
+            try {
+                Intent intent=new Intent().setComponent(new android.content.ComponentName(target[0],target[1]))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (getPackageManager().resolveActivity(intent,0)!=null) { startActivity(intent); return; }
+            } catch (Exception ignored) {}
+        }
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())));
+        } catch (Exception error) {
+            info("请在系统设置中允许 ORN 后台运行与高耗电");
+        }
+    }
+    private void diagnose() {
+        if (busy) return;
+        busy=true;
+        worker.execute(() -> {
+            StringBuilder report=new StringBuilder();
+            try {
+                JSONObject value=(JSONObject)api("/diagnostics",null,"GET");
+                JSONArray forwards=value.optJSONArray("forwards");
+                JSONArray peers=value.optJSONArray("peers");
+                report.append("ORN ").append(value.optString("version")).append(" · ").append(value.optString("platform")).append("\n");
+                report.append("内核运行 ").append(duration(value.optLong("uptime_seconds",0))).append(" · 协程 ").append(value.optInt("goroutines")).append("\n");
+                report.append("组网 ").append(value.optString("backend_state")).append(value.optString("mesh_error").isEmpty()?"":" · "+value.optString("mesh_error")).append("\n");
+                if (peers!=null) for (int index=0;index<peers.length();index++) {
+                    JSONObject peer=peers.optJSONObject(index);
+                    report.append("设备 ").append(peer.optString("hostname")).append(" · ").append(peer.optString("path").isEmpty()?"idle":peer.optString("path")).append(peer.optBoolean("online")?" · 在线":" · 离线").append("\n");
+                }
+                report.append("转发 ").append(forwards==null?0:forwards.length()).append(" 个\n");
+                if (forwards!=null) for (int index=0;index<forwards.length();index++) {
+                    JSONObject entry=forwards.optJSONObject(index);
+                    report.append("  ").append(entry.optString("peer_ip")).append(":").append(entry.optInt("remote_port"))
+                        .append("→").append(entry.optInt("local_port")).append(" · ").append(entry.optInt("connections")).append(" 连接 · 下行 ")
+                        .append(entry.optLong("bytes_in")).append(" B · 上行 ").append(entry.optLong("bytes_out")).append(" B\n");
+                    if (!entry.optString("last_error").isEmpty()) report.append("  错误 ").append(entry.optString("last_error")).append("\n");
+                }
+            } catch (Exception error) {
+                report.append("本机内核不可用：").append(error.getMessage()).append("\n");
+            }
+            report.append("\n--- 设备日志 ---\n").append(Diagnostics.tail(5000));
+            String body=report.toString();
+            onUI(() -> {
+                busy=false;
+                new AlertDialog.Builder(this).setTitle("连接诊断").setMessage(body)
+                    .setPositiveButton("复制",(dialog,which) -> {
+                        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("ORN 连接诊断",body));
+                        info("诊断信息已复制");
+                    }).setNegativeButton("关闭",null).show();
+            });
+        });
     }
 }
