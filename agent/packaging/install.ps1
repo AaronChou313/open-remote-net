@@ -12,6 +12,12 @@ $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $Settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "OpenRemoteHub ORN" -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+$ShortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\OpenRemoteHub ORN.lnk"
+$Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath)
+$Shortcut.TargetPath = $Binary
+$Shortcut.Arguments = "-config `"$Config`" open"
+$Shortcut.WorkingDirectory = $Destination
+$Shortcut.Save()
 Start-ScheduledTask -TaskName "OpenRemoteHub ORN"
 Start-Sleep -Seconds 2
 & $Binary -config $Config open

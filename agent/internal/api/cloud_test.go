@@ -31,7 +31,7 @@ func TestAdoptExistingORHIdentity(t *testing.T) {
 		if r.Method != "GET" || r.URL.Path != "/agent/directory" || r.Header.Get("Authorization") != "Bearer "+credential {
 			t.Error("unexpected Cloud request")
 		}
-		json.NewEncoder(w).Encode([]map[string]string{{"instance_id": device}})
+		json.NewEncoder(w).Encode([]map[string]any{{"instance_id": device, "self": true}})
 	}))
 	defer cloud.Close()
 	s := &Server{Token: "test-api-token", Config: state.Config{APIAddr: "127.0.0.1:4789", StateDir: filepath.Join(t.TempDir(), "state"), Publish: map[int]string{21118: "127.0.0.1:21118"}}, ConfigPath: filepath.Join(t.TempDir(), "config.json")}
@@ -78,5 +78,17 @@ func TestConcurrentBindReusesPendingCodeAndHidesExpired(t *testing.T) {
 	s.Config.Cloud.Expires = float64(time.Now().Add(-time.Minute).Unix())
 	if s.publicCloud()["pending"] != nil {
 		t.Fatal("expired binding code shown")
+	}
+}
+
+func TestAdoptRejectsAnotherDeviceInTheSameAccount(t *testing.T) {
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{{"instance_id": "device-a", "self": true}, {"instance_id": "device-b", "self": false}})
+	}))
+	defer cloud.Close()
+	s := &Server{Token: "test-api-token", Config: state.Config{APIAddr: "127.0.0.1:4789"}}
+	response := cloudRequest(s, "/cloud/adopt", map[string]any{"base_url": cloud.URL, "device_id": "device-b", "device_token": "device-a-private-credential"})
+	if response.Code != 403 || s.Config.Cloud.Bound {
+		t.Fatal("another device credential was accepted")
 	}
 }

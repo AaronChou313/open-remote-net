@@ -242,7 +242,7 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 	ownID, localConsole := s.Config.Cloud.DeviceID, s.Config.Publish[8765]
 	s.cloudMu.RUnlock()
 	if input.DeviceID != "" && input.DeviceID == ownID && localConsole != "" {
-		reply(w, map[string]any{"url": "http://" + localConsole})
+		reply(w, map[string]any{"url": "http://" + localConsole + "/auth/cloud/enter"})
 		return
 	}
 	if _, err := s.Node.PeerIP(r.Context(), input.PeerIP); err != nil {
@@ -254,5 +254,5 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err)
 		return
 	}
-	reply(w, map[string]any{"forward": entry, "url": entry.URL})
+	reply(w, map[string]any{"forward": entry, "url": entry.URL + "/auth/cloud/enter"})
 }
