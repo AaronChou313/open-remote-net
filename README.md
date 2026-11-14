@@ -46,6 +46,8 @@ macOS / Linux 执行 `sh agent/packaging/install.sh`。macOS 安装用户 Launch
 
 与 ORH 共址时，ORH 自动通过 LocalAPI 将已有 Cloud 绑定交给 ORN，沿用同一 UUID。ORH 负责地址和心跳，ORN 负责入网与节点对账。ORH 管理页通过 `ORH_ORN_API_URL` 和 `ORH_ORN_API_TOKEN_FILE` 读取本机 ORN。
 
+同一台电脑不要同时用系统 Tailscale 登录该控制服务：会留下第二个节点，它没有 ORH 控制台，打开控制台会提示“目标控制台身份不匹配”。退出系统 Tailscale 或删除旧节点即可。
+
 控制端先启动 ORN，再从 Cloud 点击设备的“打开控制台”。本机会创建该设备专用的 `http://orh-<UUID>.localhost:<port>`，通过 userspace 网络转发 HTTP 和 WebSocket，Cloud 登录票据仍单次兑换。Zellij 与 DSH 继续使用原生页面。直接局域网访问可使用“直接访问”。
 
 userspace 网络提供进程内连接。其他应用的系统网络路由继续由宿主机管理。VS Code Remote SSH、其他 Web 服务可使用已有可达地址，或在 ORN 配置 `publish` 后使用“端口转发”。默认端口需在实际主机确认。RustDesk 客户端由用户单独安装，并保留其认证流程。

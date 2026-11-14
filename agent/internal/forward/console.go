@@ -38,7 +38,7 @@ func (m *Manager) CreateConsole(ctx context.Context, ip, expectedDevice string) 
 	response, err := client.Do(request)
 	if err != nil {
 		transport.CloseIdleConnections()
-		return Entry{}, fmt.Errorf("目标设备未提供 ORH Web 控制台")
+		return Entry{}, fmt.Errorf("目标设备未提供 ORH 控制台（可能是旧组网节点或 ORH 未运行）")
 	}
 	var identity struct {
 		Service    string `json:"service"`
@@ -48,7 +48,7 @@ func (m *Manager) CreateConsole(ctx context.Context, ip, expectedDevice string) 
 	response.Body.Close()
 	if err != nil || response.StatusCode != 200 || identity.Service != "openremotehub" || !devicePattern.MatchString(identity.InstanceID) || expectedDevice != "" && expectedDevice != identity.InstanceID {
 		transport.CloseIdleConnections()
-		return Entry{}, fmt.Errorf("目标控制台身份不匹配")
+		return Entry{}, fmt.Errorf("目标控制台身份不匹配（可能是旧组网节点；请确认目标设备只保留 ORN 节点且 ORH 已绑定）")
 	}
 	// Reuse an existing browser origin for this device while this process lives.
 	m.mu.Lock()
