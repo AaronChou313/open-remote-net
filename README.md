@@ -30,6 +30,8 @@ TS_AUTHKEY='<短期一次性密钥>' ./dist/orn-agent-darwin-arm64
 
 ## 用户服务
 
+与 ORH 同机部署时不需要单独安装本服务：ORH 的安装脚本会把二进制放入 `bin/`，由控制台进程启动并监护，设备身份与 Cloud 绑定沿用标准配置目录。下面的独立安装方式适用于只运行 ORN 的主机。
+
 macOS / Linux 执行 `sh agent/packaging/install.sh`。macOS 安装用户 LaunchAgent `top.openremotehub.orn`，Linux 安装用户 systemd 服务 `orn-agent`。Windows 解压安装包后，在 PowerShell 执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\agent\packaging\install.ps1`。它安装当前用户登录触发的计划任务及开始菜单入口“OpenRemoteHub ORN”。Linux 用户服务的开机常驻依赖系统已有的用户登录 / linger 设置。
 
 ## 数据路径
