@@ -30,7 +30,7 @@ TS_AUTHKEY='<短期一次性密钥>' ./dist/orn-agent-darwin-arm64
 
 ## 用户服务
 
-macOS / Linux 执行 `sh agent/packaging/install.sh`。macOS 安装用户 LaunchAgent `top.openremotehub.orn`，Linux 安装用户 systemd 服务 `orn-agent`。Windows 在 PowerShell 执行 `agent/packaging/install.ps1`，安装当前用户登录触发的计划任务。Linux 用户服务的开机常驻依赖系统已有的用户登录 / linger 设置。
+macOS / Linux 执行 `sh agent/packaging/install.sh`。macOS 安装用户 LaunchAgent `top.openremotehub.orn`，Linux 安装用户 systemd 服务 `orn-agent`。Windows 解压安装包后，在 PowerShell 执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\agent\packaging\install.ps1`。它安装当前用户登录触发的计划任务及开始菜单入口“OpenRemoteHub ORN”。Linux 用户服务的开机常驻依赖系统已有的用户登录 / linger 设置。
 
 ## 数据路径
 
